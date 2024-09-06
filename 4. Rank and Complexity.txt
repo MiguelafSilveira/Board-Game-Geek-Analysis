@@ -1,0 +1,23 @@
+Objective:
+Grouping games by their rank (ranges of 1000), the objective is to verify within each ranking group the average complexity and the average number of mechanics used in games to check if there is a relationship between rank and complexity.
+
+Analysis:
+- From this analysis, it seems like there is a tendency for more complex games to be ranked higher
+
+
+PostgreSQL Query:
+
+WITH series AS(
+	SELECT generate_series(1,5000,1000) AS r_from),
+range AS (SELECT r_from, (r_from + 999) AS r_to FROM series
+)
+
+SELECT r_from, r_to,
+	(SELECT avg(array_length(mechanic,1)) :: decimal(10,2) AS Avg_number_of_mechanics FROM game WHERE rank BETWEEN r_from AND r_to),
+	(SELECT avg(array_length(mechanic,1)) :: decimal(10,2) AS Avg_number_of_mechanics_Total FROM game WHERE rank <=5000),
+	(SELECT avg(complexity) :: decimal(10,2) AS Avg_complexity_rating FROM game WHERE rank BETWEEN r_from AND r_to),
+	(SELECT avg(complexity) :: decimal(10,2) AS Avg_complexity_rating_Total FROM game WHERE rank <=5000)
+FROM range
+
+
+

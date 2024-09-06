@@ -1,0 +1,191 @@
+Objective:
+Based on a surface knowledge about the subject, I wanted to explore the hypothesis that there is relationship between the complexity rating of a game and the number of mechanics it uses.
+
+To start, I looked at the distribution within each field to help define the conditional CASE expressions (LOW/MEDIUM/HIGH) based on the percentiles of these columns. 
+For the field "mechanics" I needed to use the count(array_length()).
+For the field complexity, since it is distributed between 1 and 5, I first tried to aggregate the games on groups of 0.5 based on SERIES. Since after calculating the percentiles I realized that the distribution would be uneven, I ended up using the exact values of the percentiles to define the CASE condition for this column.
+
+After defining the CASE expressions, I then performed the analysis checking the relationship trough a CUBE.
+
+
+Analysis:
+- After calculating the percentiles (0.33 and 0.67) of the columns "mechanics" and "complexity" and defining groups based on this distribution it is clear by the analysis that there is a correlation between these fields, where a higher complexity is associated with a higher number of mechanics used
+
+
+PostgreSQL Queries:
+1. Add a column for aggregations:
+ALTER TABLE game
+ADD COLUMN agg_group VARCHAR(10)
+
+UPDATE game
+SET agg_group = 'Game'
+
+
+2. First look at the column "mechanics" by checking the # of mechanics used:
+SELECT (array_length(mechanic,1)) AS number_of_mechanics, count(array_length(mechanic,1))
+FROM game
+WHERE rank <=5000
+GROUP BY (array_length(mechanic,1))
+ORDER BY (array_length(mechanic,1)) 
+
+
+3. Calculate percentiles of # of mechanics used and evaluate if the distribution is fairly even:
+WITH percentiles AS (
+	SELECT agg_group, 
+	percentile_disc(0.3333) within group (order by array_length(mechanic,1) ASC) AS percentile_33,
+	percentile_disc(0.6666) within group (order by array_length(mechanic,1) ASC) AS percentile_67 
+FROM game
+WHERE rank <= 5000
+GROUP BY agg_group
+)
+	
+SELECT agg_group, 
+	(SELECT count(array_length(mechanic,1)) AS count_p33
+	FROM game AS g
+	JOIN percentiles AS p
+	ON g.agg_group = p.agg_group
+	WHERE rank <= 5000 and array_length(mechanic,1) <= p.percentile_33
+	GROUP BY g.agg_group),
+	(SELECT count(array_length(mechanic,1)) AS count_p67
+	FROM game AS g
+	JOIN percentiles AS p
+	ON g.agg_group = p.agg_group
+	WHERE rank <= 5000 and array_length(mechanic,1) > p.percentile_33 AND array_length(mechanic,1) <= p.percentile_67
+	GROUP BY g.agg_group),
+	(SELECT count(array_length(mechanic,1)) AS count_p100
+	FROM game AS g
+	JOIN percentiles AS p
+	ON g.agg_group = p.agg_group
+	WHERE rank <= 5000 and array_length(mechanic,1) > p.percentile_67
+	GROUP BY g.agg_group)
+FROM percentiles
+
+
+4. First look at the column "complexity":
+SELECT count(complexity), min(complexity), max(complexity), avg(complexity) from game
+WHERE rank <=5000
+
+5. Calculate percentiles of the column "complexity" based on groups of 0.5 and evaluate if the distribution is fairly even:
+WITH percentiles_3 AS(
+WITH percentiles_2 AS(
+WITH percentiles_1 AS(
+WITH series AS(
+	SELECT generate_series(1,4.5,0.5) AS r_from),
+range AS (SELECT r_from, (r_from + 0.5) AS r_to FROM series
+)
+
+	
+SELECT 'Game' AS complexity, r_from, r_to,
+	(SELECT percentile_disc(0.3333) within group (order by complexity ASC) FROM game WHERE rank<=5000) AS p_33,
+	(SELECT percentile_disc(0.6666) within group (order by complexity ASC) FROM game WHERE rank<=5000) AS p_67
+FROM range
+)
+
+SELECT r_from, r_to, 
+	CASE
+	WHEN p_67 < r_from THEN 3
+	WHEN p_33 < r_from  THEN 2
+	ELSE 1
+	END percentile
+FROM percentiles_1
+)
+
+SELECT 'Game' AS complexity, 
+	percentile_disc(0.3333) within group (order by percentile ASC) AS percentile_33,
+	percentile_disc(0.6666) within group (order by percentile ASC) AS percentile_67 
+FROM percentiles_2
+GROUP BY complexity
+)
+	
+SELECT complexity, 
+	(SELECT count(*) AS count_p33
+	FROM game AS g
+	JOIN percentiles_3 AS p
+	ON g.agg_group = p.complexity
+	WHERE rank <= 5000 AND g.complexity < percentile_33
+	GROUP BY g.agg_group),
+	(SELECT count(*) AS count_p67
+	FROM game AS g
+	JOIN percentiles_3 AS p
+	ON g.agg_group = p.complexity
+	WHERE rank <= 5000 AND g.complexity >= percentile_33 AND g.complexity < percentile_67
+	GROUP BY g.agg_group),
+	(SELECT count(*) AS count_p100
+	FROM game AS g
+	JOIN percentiles_3 AS p
+	ON g.agg_group = p.complexity
+	WHERE rank <= 5000 AND g.complexity >= percentile_67
+	GROUP BY g.agg_group)
+FROM percentiles_3
+
+
+6. Since the distribution was eneven, I cannot use the groups of 0.5 and have to use the exact values of the percentiles to define the CASE condition:
+WITH percentiles_1 AS(
+WITH percentiles AS(
+	SELECT 'Game' AS complexity_group,
+	percentile_cont(0.33333) within group (order by complexity ASC) AS p_33,
+	percentile_cont(0.66666) within group (order by complexity ASC) AS p_67
+FROM game
+WHERE rank<=5000 AND complexity IS NOT NULL
+GROUP BY complexity_from
+)
+
+SELECT g.agg_group, complexity, p.p_33, p.p_67
+FROM game AS g
+JOIN percentiles AS p
+ON g.agg_group = p.complexity_group
+WHERE rank <=5000 AND complexity IS NOT NULL
+)
+	
+SELECT agg_group, count(*),  
+	CASE
+	WHEN complexity <= p_33 THEN 'LOW'
+	WHEN complexity <= p_67 THEN 'MEDIUM'
+	WHEN complexity > p_67 THEN 'HIGH'
+	END complexity_g
+FROM percentiles_1
+GROUP BY agg_group, complexity_g
+
+
+
+
+7. Confirmation of the hypothesis that the number of mechanics used is related to the complexity using a CUBE:
+WITH groupings AS(
+WITH game_percentiles AS(
+WITH percentiles AS(
+SELECT agg_group,
+	percentile_disc(0.3333) within group (order by array_length(mechanic,1) ASC) AS mec_p_33,
+	percentile_disc(0.6666) within group (order by array_length(mechanic,1) ASC) AS mec_p_67,
+	percentile_disc(0.3333) within group (order by complexity ASC) AS comp_p_33,
+	percentile_disc(0.6666) within group (order by complexity ASC) AS comp_p_67
+FROM game
+WHERE rank <= 5000
+GROUP BY agg_group
+)
+
+SELECT p.agg_group, array_length(mechanic,1), g.complexity, mec_p_33, mec_p_67, comp_p_33, comp_p_67
+FROM percentiles AS p
+JOIN game AS g
+ON p.agg_group = g.agg_group
+WHERE rank <=5000
+)
+
+SELECT agg_group, 
+	CASE 
+		WHEN array_length <= mec_p_33 THEN '1. LOW MECHANICS'
+		WHEN array_length <= mec_p_67 THEN '2. MED MECHANICS'
+		WHEN array_length > mec_p_67 THEN '3. HIG MECHANICS'
+		END mechanics,
+	CASE
+		WHEN complexity <= comp_p_33 THEN '1. LOW COMPLEXITY'
+		WHEN complexity <= comp_p_67 THEN '2. MED COMPLEXITY'
+		WHEN complexity > comp_p_67 THEN '3. HIG COMPLEXITY'
+		END complexity
+FROM game_percentiles
+)
+
+SELECT mechanics, complexity, count(*)
+FROM groupings
+WHERE mechanics IS NOT NULL AND complexity IS NOT NULL
+GROUP BY ROLLUP (complexity, mechanics)
+ORDER BY complexity DESC, mechanics DESC

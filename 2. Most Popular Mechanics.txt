@@ -1,0 +1,92 @@
+Objective:
+Mechanics are the core part of a board game, so it may be interesting to find out what are the most popular mechanics and if there is more popular games (by rank) tend to use different mechanics than less popular games.
+This section contains two queries: one to transform the column "mechanic" from the table "game" into an array so it can be queried, and a second query with the analysis of the % of games that contain each mechanic
+
+
+Analysis: 
+Looking at the top 10, most of the categories suffer (as expected) a dip in appearances in games. Even so, there are some curious cases:
+- Dice Rolling (ranked 1st in this table) is a very popular category within all ranking groups, with almost a third of all games in each group containing this mechanic. It achieves the first place in usage due to this consistency, since it is only the 3rd best in the most prominent group (Rank 1-1000)
+- Solo/Solitaire game (ranked 7th in this table) achieves this position due to its strong appearance in the highest ranked games. Considering only the remaining game ranks, it would only be ranked 10th.
+
+
+PostgreSQL Queries:
+1. Change of column type to array to be able to query it:
+ALTER TABLE game
+ALTER COLUMN mechanic TYPE TEXT[]
+USING string_to_array(mechanic,',')
+
+
+2. Analysis of the % of games that contain each mechanic:
+WITH m5 AS ( 
+WITH m4 AS ( 
+WITH m3 AS ( 
+WITH m2 AS ( 
+WITH m1 AS ( 
+WITH m AS ( 
+
+
+SELECT mechanic.id, mechanic.name, count(*) AS "Total" 
+FROM mechanic 
+JOIN game 
+ON mechanic.id = ANY (game.mechanic) 
+WHERE game.rank <= 5000 
+GROUP BY mechanic.id, mechanic.name 
+ORDER BY count(*) DESC
+) 
+
+ 
+SELECT m.id, m.name, "Total", count(*)*100/1000 :: decimal (10,1) AS "Rank 1-1000 %" 
+FROM m 
+JOIN game 
+ON m.id = ANY (game.mechanic) 
+WHERE game.rank <= 1000 
+GROUP BY m.id, m.name, "Total" 
+ORDER BY count(*) DESC
+) 
+
+
+SELECT m1.id, m1.name, "Total", "Rank 1-1000 %":: decimal (10,1), count(*)*100/1000 :: decimal (10,1) AS "Rank 1001-2000 %" 
+FROM m1 
+JOIN game 
+ON m1.id = ANY (game.mechanic) 
+WHERE game.rank >1000 AND game.rank <= 2000 
+GROUP BY m1.id, m1.name, "Total","Rank 1-1000 %" 
+ORDER BY count(*) DESC
+) 
+
+	
+SELECT m2.id, m2.name, "Total", "Rank 1-1000 %":: decimal (10,1), "Rank 1001-2000 %":: decimal (10,1), count(*)*100/1000 :: decimal (10,1) AS "Rank 2001-3000 %" 
+FROM m2 
+JOIN game 
+ON m2.id = ANY (game.mechanic) 
+WHERE game.rank >2000 AND game.rank <= 3000 
+GROUP BY m2.id, m2.name, "Total", "Rank 1-1000 %", "Rank 1001-2000 %" 
+ORDER BY count(*) DESC 
+) 
+
+	
+SELECT m3.id, m3.name, "Total", "Rank 1-1000 %":: decimal (10,1), "Rank 1001-2000 %":: decimal (10,1), "Rank 2001-3000 %":: decimal (10,1), count(*)*100/1000 :: decimal (10,1) AS "Rank 3001-4000 %" 
+FROM m3 
+JOIN game 
+ON m3.id = ANY (game.mechanic) 
+WHERE game.rank >3000 AND game.rank <= 4000 
+GROUP BY m3.id, m3.name, "Total", "Rank 1-1000 %", "Rank 1001-2000 %", "Rank 2001-3000 %" 
+ORDER BY count(*) DESC 
+) 
+
+  
+
+SELECT m4.id, m4.name, "Total", "Rank 1-1000 %" :: decimal (10,1), "Rank 1001-2000 %" :: decimal (10,1), "Rank 2001-3000 %" :: decimal (10,1), "Rank 3001-4000 %" :: decimal (10,1), count(*)*100/1000 :: decimal (10,1) AS "Rank 4001-5000 %" 
+FROM m4 
+JOIN game 
+ON m4.id = ANY (game.mechanic) 
+WHERE game.rank >4000 AND game.rank <= 5000 
+GROUP BY m4.id, m4.name, "Total", "Rank 1-1000 %", "Rank 1001-2000 %", "Rank 2001-3000 %", "Rank 3001-4000 %" 
+ORDER BY count(*) :: decimal (10,1) DESC 
+) 
+
+  
+SELECT m5.id, m5.name, "Total", "Rank 1-1000 %" :: decimal (10,1), "Rank 1001-2000 %" :: decimal (10,1), "Rank 2001-3000 %" :: decimal (10,1), "Rank 3001-4000 %"  :: decimal (10,1), "Rank 4001-5000 %" :: decimal (10,1) 
+FROM m5 
+ORDER BY "Total" DESC 
+
